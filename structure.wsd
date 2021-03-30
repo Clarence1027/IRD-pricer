@@ -1,0 +1,75 @@
+@startuml
+class Curve{
+	-x : list of float
+	-y : list of float
+	-curveDate
+
+	+getCurveDate()
+	+set_curve(x,y)
+	+interpolate(method,tenor)
+}
+
+class ParCurve{
+	+__call__()
+	+bootstrapSpotCurve()
+}
+
+class ForwardCurve{
+	+__call__()
+	+generateSpotCurve()
+}
+
+class SpotRateCurve{
+	+__call__()
+	+generateForwardCurve()
+}
+
+Curve <|-- ParCurve
+Curve <|-- SpotRateCurve
+Curve <|-- ForwardCurve
+
+
+class IRModels{
+	-spotRates : pd.DataFrame
+}
+
+class Vasicek{
+	-args
+	+clalibarte
+	+nanalytic()
+	+MC()
+}
+
+class BDT{
+	-args
+	+clalibarte
+	+nanalytic()
+	+MC()
+}
+
+class HullWhite{
+	-args
+	+clalibarte
+	+nanalytic()
+	+MC()
+}
+
+IRModels <|-- HullWhite
+HullWhite <|-- Vasicek
+IRModels <|-- BDT
+
+class Pricer{
+	-data
+	-payments
+	-payment_dates
+	+yieldCooking()
+	+generateDeals()
+	+calibrate_IR()
+	+PV()
+}
+
+Pricer o-- IRModels
+Pricer o-- Curve
+
+
+@enduml
