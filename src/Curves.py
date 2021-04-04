@@ -1,150 +1,134 @@
-
-import numpy
-from scipy import interpolate as ip
 import pandas as pd
-import math
-from scipy.optimize import brentq
+import numpy as np
+from scipy.interpolate import interp1d
+import re
+from scipy.optimize import newton, brentq
 
-class Curve():
-    
-    
-    def __init__(self,x_ = None, y_ = None):
-        self.set_curve(x_,y_)
-        
-        
-        
-    def set_curve(self, x_ = None, y_ = None):
 
-        if type(x_) is list and y_ is None:
-            self.x = numpy.array([coor[0] for coor in x_])
-            self.y = numpy.array([coor[1] for coor in x_])
-            
-        elif type(x_) is list and type(y_) is list:
-            self.x = numpy.array(x_)
-            self.y = numpy.array(y_) 
-            
-        elif type(x_) is numpy.ndarray and type(y_) is numpy.ndarray:
-            self.x = x_
-            self.y = y_
-            
-        elif type(x_) is str:
-            csv = numpy.genfromtxt(x_, delimeter = ",")
-            self.x = csv[:,0]
-            self.y = csv[:,1]
-            
-        else:
-            self.x = numpy.array([])
-            self.y = numpy.array([])
-            
-            
-    def interpolate(self, opt = 'linear', xNew = None):
-        if xNew is not None:
-            return ip.interp1d(self.x, self.y, kind = opt, fill_value="extrapolate")(xNew)
-        else:
-            return ip.interp1d(self.x,self.y, kind = opt, fill_value="extrapolate")
-            
-class TsyYldCurve(Curve):
-    
-    def __init__(self, x_ = None, y_ = None, curveDate_ = None):
-        self.set_date(curveDate_)
-        super().__init__(x_,y_)
-    
-    def set_date(self, newDate):
-        self.curveDate = newDate
-        
-    def getCurveDate(self):
-        return self.curveDate
-    
-    @staticmethod
-    def getMaturityInYears(maturityDates):
-        maturityInStr = list(maturityDates)
-        maturityInYear = []
-        for maturity in maturityInStr:
-            if 'mo' in maturity:
-                maturityInYear += [float(maturity.replace(' mo', ''))/12]
-            else:
-                maturityInYear += [float(maturity.replace(' yr', ''))]
-        return maturityInYear
-    
-    @staticmethod
-    def buildMostRecentDate():
-        dfs = pd.read_html('https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield')
-        maturityDays = list(dfs[1].columns)[1:]
-        xData = numpy.array(TsyYldCurve.getMaturityInYears(maturityDays))
-        yData = numpy.array(list(dfs[1].iloc[-1,1:]))/100
-        date_ = dfs[1].iloc[-1,0]
-        return TsyYldCurve(xData,yData,date_)
-    
-    @staticmethod
-    def DF(rate, time_diff):
-        return numpy.exp(-rate.dot(time_diff))
-   
-    @staticmethod
-    def couponNPV(coupon, rate, time_diff):
-        discountFactor = numpy.cumprod(numpy.exp(-rate*time_diff))
-        return numpy.sum((coupon/rate)*discountFactor*(1-numpy.exp(-rate*time_diff)))
-    
-    def generateForwardCurve(self):
-        time_diff = numpy.diff(self.x, prepend = 0)
-        rate = self.y.copy()
-        for i in range(1,len(time_diff)):
-            coupon = self.y[i]
-            df_i = TsyYldCurve.DF(rate[:i],time_diff[:i])
-            f = lambda a: TsyYldCurve.couponNPV(coupon, rate[:i], time_diff[:i]) + coupon/a * df_i * (1-numpy.exp(-a*time_diff[i])) + df_i*numpy.exp(-a*time_diff[i]) -1
-            rate[i]= brentq(f,.0001,.1)
-        return ForwardCurve(self.x, rate)
-    
-class ForwardCurve(Curve):
-    
-    def __init__(self, x_= None,y_ = None):
-        super().__init__(x_,y_)
-    
-    def __call__(self, x_, opt = 'previous'):
-        return self.interpolate(x_, opt)
-    
+class Curve:
+
+    def __init__(self, a, *args):
+        if len(a) == 0 and len(args) == 0:
+            self.x = np.array([])
+            self.y = np.array([])
+        if len(a) != 0 and len(args) == 0:
+            self.x = np.array([i[0] for i in a])
+            self.y = np.array([i[1] for i in a])
+        if len(args) == 1:
+            self.x = np.array(a)
+            self.y = np.array(args[0])
+        if type(a) == str:
+            df = pd.read_csv(a)
+            self.x = np.array(df['x'])
+            self.y = np.array(df['y'])
+
+    def set_curve(self, x, y):
+        self.x = x
+        self.y = y
+
+    def interpolate(self, new_x):
+        f = interp1d(self.x, self.y, kind='linear', fill_value='extrapolate')
+        return f(new_x)
+
+
+class ForwardCurve (Curve):
+
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def __call__(self, date):
+        f = interp1d(self.x, self.y, kind='previous', fill_value='extrapolate')
+        return f(date)
+
     def generateSpotCurve(self):
-        time_diff = numpy.diff(self.x, prepend = 0)
-        new_y = numpy.zeros(len(time_diff))
-        for i in range(len(time_diff)):
-            f = lambda a: numpy.exp(a*self.x[i])-numpy.exp((self.y[:i+1]*time_diff[:i+1]).sum())
-            new_y[i] = brentq(f,-.0001,.1)
-        return SpotCurve(self.x, new_y)
-        
+        spot_x = self.x
+        spotrate_ = self.y[0]
+        spotrate = [spotrate_]
+        for i in range(1, len(self.y)):
+            spotrate_ = (
+                spotrate_ * self.x[i - 1] + self.y[i] * (self.x[i] - self.x[i - 1])) / self.x[i]
+            spotrate.append(spotrate_)
+        return SpotRateCurve(spot_x, spotrate)
 
-class SpotCurve(Curve):
-    def __init__(self, x_= None,y_ = None):
-        super().__init__(x_,y_)
-    
-    def __call__(self, x_, opt = 'linear'):
-        return self.interpolate(x_, opt)
-    
+
+class SpotRateCurve (Curve):
+
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def __call__(self, date):
+        f = interp1d(self.x, self.y, kind='linear', fill_value='extrapolate')
+        return f(date)
+
     def generateForwardCurve(self):
-        time_diff = numpy.diff(self.x, prepend = 0)
-        new_y = numpy.zeros(len(time_diff))
-        new_y[0] =self.y[0]
-        for i in range(1,len(time_diff)):
-            f = lambda a: math.exp(self.y[i]*self.x[i])/(math.exp(self.y[i-1]*self.x[i-1])-math.exp(a*time_diff[i]))
-            new_y[i] = brentq(f,.0001,.1)
-        return ForwardCurve(self.x, new_y)
-            
-            
-            
+        forwardrate = [self.y[0]]
+        for i in range(1, len(self.y)):
+            forwardrate_ = (self.x[i] * self.y[i] - self.x[i - 1]
+                            * self.y[i - 1]) / (self.x[i] - self.x[i - 1])
+            forwardrate.append(forwardrate_)
+        return ForwardCurve(self.x, forwardrate)
+
+
+class TsyYldCurve (Curve):
+
+    def __init__(self, x_, y_):
+
+        # # get the most recent date
+        # tre_df = pd.read_html("https://www.treasury.gov/resource-center/data-chart-center/interest-rates/Pages/TextView.aspx?data=yield")[1]
+        # most_recent = tre_df[-1:].copy()
+        # most_recent['Date'] = pd.to_datetime(most_recent['Date'])
+        # x_base = []
+        # for i in most_recent.columns[1:]:
+        #     if "mo" in i:
+        #         x_base.append(eval(re.findall(r'\d+',i)[0])/12)
+        #     else:
+        #         x_base.append(eval(re.findall(r'\d+',i)[0]))
+        # y_base = list(most_recent.iloc[0][1:])
+        # date_base = most_recent.iloc[0]['Date']
+        # super().__init__(x_base,y_base)
+        # self.curveDate = date_base
+
+        # set specific data
+        super().__init__(x_, y_)
+
+    def getForwardCurve(self):
+        forward_rate = [self.y[0] * 0.01]
+        dt = np.diff(self.x, prepend=0)
+        discount_factor = [1, np.exp(-self.x[0] * self.y[0] * 0.01)]
+        for i in range(1, len(self.y)):
+            pv = discount_factor[i] * self.y[i] * 0.01
+            summation = 0
+            for j in range(0, i):
+                summation += discount_factor[j] * self.y[i] * 0.01 * \
+                    (1 - np.exp(-forward_rate[j] * dt[j])) / forward_rate[j]
+            func = lambda x: pv * \
+                (1 - np.exp(-x * dt[i])) / x + summation + \
+                np.exp(-x * dt[i]) * discount_factor[i] - 1
+            # r = newton(func, 0.01)
+            r = brentq(func, .0000001, .2)
+            forward_rate.append(r)
+            discount_factor.append(discount_factor[-1] * np.exp(-r * dt[i]))
+        return ForwardCurve(self.x, np.array(forward_rate) * 100)
+
+    @staticmethod
+    def getMaturityInYears(x):
+        if "m" in x:
+            return eval(re.findall(r'\d+', x)[0]) / 12
+        else:
+            return eval(re.findall(r'\d+', x)[0])
+
+    @classmethod
+    def getCurveDate(cls):
+        return cls.curveDate
+
 if __name__ == '__main__':
-    
-    
-    
-   # T = [0.02, 0.04, 0.1, 0.3, 0.5, 0.75, 1, 1.5, 2, 5, 10, 15, 20, 25, 30, 50]
-    
-    recentYldCurve = TsyYldCurve.buildMostRecentDate()
-    
-    print('The date of the yields is from ' + recentYldCurve.curveDate)
-    [ print(str(recentYldCurve.y[t]) + ' for ' + str(recentYldCurve.x[t]) + ' years') for t in range(len(recentYldCurve.x))]
-    print("\n")
-    print('The forward rates are: ')
-    fwd = recentYldCurve.generateForwardCurve()
-    spt = fwd.generateSpotCurve()
-    [ print(str(fwd.y[t]) + ' for ' + str(fwd.x[t]) + ' years') for t in range(len(fwd.x))]
-    print("\n")
-    print('The spot rates are: ')
-    [ print(str(spt.y[t]) + ' for ' + str(fwd.x[t]) + ' years') for t in range(len(spt.x))]
-    
+    # print("The bootstrapped forward rate curve is\n {}".format(np.array((TsyYldCurve().getForwardCurve().x,TsyYldCurve().getForwardCurve().y))))
+    # print("The spot rate curve is\n {}".format(np.array((TsyYldCurve().getForwardCurve().generateSpotCurve().x,TsyYldCurve().getForwardCurve().generateSpotCurve().y))))
+    CMT_df = pd.read_csv('../data/CMT/CMT/CMT.csv')
+    par = CMT_df.values[0, 1:]
+    tenor = [TsyYldCurve.getMaturityInYears(x) for x in CMT_df.columns[1:]]
+    par_curve = TsyYldCurve(tenor, par)
+    spot_curve = par_curve.getForwardCurve().generateSpotCurve()
+    print(par)
+    print(tenor)
+    print(spot_curve.y)

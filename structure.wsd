@@ -1,17 +1,14 @@
 @startuml
 class Curve{
-	-x : list of float
-	-y : list of float
-	-curveDate
-
-	+getCurveDate()
+	-x : tenor
+	-y : yields
 	+set_curve(x,y)
-	+interpolate(method,tenor)
+	+interpolate(method,new_tenor)
 }
 
-class ParCurve{
+class TsyYldCurve{
 	+__call__()
-	+bootstrapSpotCurve()
+	+getForwardCurve()
 }
 
 class ForwardCurve{
@@ -24,52 +21,55 @@ class SpotRateCurve{
 	+generateForwardCurve()
 }
 
-Curve <|-- ParCurve
-Curve <|-- SpotRateCurve
-Curve <|-- ForwardCurve
+TsyYldCurve -up--|> Curve
+SpotRateCurve -up--|> Curve
+ForwardCurve -up--|> Curve
 
 
 class IRModels{
 	-spotRates : pd.DataFrame
+	+DF(tenor)
 }
 
 class Vasicek{
 	-args
-	+clalibarte
+	+__call__(opt,method)
+	+clalibarte()
 	+nanalytic()
 	+MC()
 }
 
 class BDT{
 	-args
-	+clalibarte
-	+nanalytic()
-	+MC()
+	+__call__(opt,method)
+	+clalibarte()
+	+tree()
 }
 
 class HullWhite{
 	-args
-	+clalibarte
-	+nanalytic()
-	+MC()
+	+__call__(opt,method)
+	+clalibarte()
+	+tree()
 }
 
 IRModels <|-- HullWhite
-HullWhite <|-- Vasicek
+IRModels <|-- Vasicek
 IRModels <|-- BDT
 
-class Pricer{
-	-data
-	-payments
-	-payment_dates
-	+yieldCooking()
-	+generateDeals()
-	+calibrate_IR()
-	+PV()
+class BondOptionPricer{
+	-opt
+	-spot
+	-step
+	-model
+	+spotBootstrapping()
+	+volStructure()
+	+calibrateIRModel()
+	+getOptionPrice()
 }
 
-Pricer o-- IRModels
-Pricer o-- Curve
+BondOptionPricer o-- IRModels
+Curve -right--o IRModels
 
 
 @enduml
