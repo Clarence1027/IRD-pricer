@@ -5,7 +5,7 @@ import numpy as np
 
 class BondOptionPricer:
 
-    def __init__(self, data_, model_='V', intp_='CS', opt_=[0.567, 6, 8], step_=1 / 12):
+    def __init__(self, data_, model_type_='V', intp_='CS', opt_=[0.567, 6, 8], step_=1 / 12,window_len_=96):
         '''
         paras:
                 @opt_: option data, opt[0]: strike; opt[1]: opt maturity; opt[2]: bond maturity
@@ -16,17 +16,18 @@ class BondOptionPricer:
         '''
 
         self.opt = opt_
-        self.spot = data_
+        self.spot_df = cls.spotBootstrapping(data_)
         self.step = step_
-        self.model = model_
+        self.window_len = window_len_
+        self.model_type = model_type_
 
     @classmethod
-    def spotBootstrapping(cls, CMT):
+    def spotBootstrapping(cls, df):
         tenor = [Curves.TsyYldCurve.getMaturityInYears(
-            x) for x in CMT.columns[1:]]
+            x) for x in df.columns[1:]]
         fail_dates = []
 
-        def spot_cooking_from_CMT(x):
+        def spot_cooking_from_df(x):
             par_curve = Curves.TsyYldCurve(tenor, x[1:])
             try:
                 spot_curve = par_curve.getForwardCurve().generateSpotCurve()
@@ -37,26 +38,43 @@ class BondOptionPricer:
                 fail_dates.append(x[0])
                 return None
             return res
-        spot = CMT.apply(spot_cooking_from_CMT, axis=1,
+        spot = df.apply(spot_cooking_from_df, axis=1,
                          result_type='broadcast').dropna()
         spot = spot.set_index('DATE')
         spot.columns = tenor
         return spot
 
-    @classmethod
-    def volStructure(cls, window_len=96):
+    def volStructure(self):
 
         # interpolate spot curve with new tenor
+        window_len=self.window_len
         tenor = [
             i * self.step for i in range(int(np.ceil(self.opt[2] / self.step)))]
-        f = lambda x: Curves.SpotRateCurve(spot.columns, x)(tenor)
-        df = self.spot.apply(f, axis=1, result_type='expand')
+        f = lambda x: Curves.SpotRateCurve(self.spot_df.columns, x)(tenor)
+        df = self.spot_df.apply(f, axis=1, result_type='expand')
         df.columns = tenor
+        self.spot_df = df
         return pd.DataFrame(zip(df.columns, np.log(df[-window_len:] / df[-window_len:].shift(1)).std(axis=0)), columns=['tenor', 'vol'])
 
     def calibrateIRModel(self):
-        # create, calibrate and save IR model
-        pass
+        # propare inputs
+        if self.model_type == 'V':
+            pass
+
+        elif self.model_type == 'BDT':
+
+            # prepare inputs
+            vol = self.volStructure()
+            tenor = np.array(vol['tenor'])
+            vol_curve = np.array(vol['vol'])[1:]
+            rates = self.spot_df.iloc[-1,:].values
+            model = BDT(tenor, rates, vol_curve,opt = self.opt)
+            model.calibrate()
+            self.model = model
+            # create, calibrate and save IR model
+            pass
+        else:
+            pass
 
     def getOptionPrice(self):
         pass
@@ -64,9 +82,13 @@ class BondOptionPricer:
 
 class IRModel:
 
-    def __init__(self, arg):
+    def __init__(self, x_, y_, vol_, opt_, arg=None):
         self.arg = arg
+        self.x = x_
+        self.y = y_
         self.vol = vol_
+        self.opt = opt_
+
 
 
 class Vasicek(IRModel):
