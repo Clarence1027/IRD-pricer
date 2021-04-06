@@ -2,10 +2,11 @@ import numpy as np
 from scipy.optimize import minimize
 from . import IRModel
 
+
 class BDT(IRModel.IRModel):
 
-    def __init__(self, x_, y_, vol_, opt_=None,arg=None):
-        super().__init__(x_, y_, vol_,opt_,arg)
+    def __init__(self, x_, y_, vol_, opt_=None):
+        super().__init__(x_, y_, vol_, opt_)
 
     def calibrate(self):
 
