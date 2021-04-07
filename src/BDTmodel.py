@@ -1,20 +1,13 @@
 import numpy as np
 from scipy.optimize import minimize
+from . import IRModel
 
-class ShortRate():
-    def __init__(self,arg,x_,y_,vol_):
-        self.arg=arg
-        self.x=x_ # ttm, np.array
-        self.y=y_ # zero rates, np.array
-        self.vol=vol_ # vol, np.array
-
-
-class BDT(ShortRate):
-    def __init__(self,x_,y_,vol_,step,arg=None):
+class BDT(IRModel.IRModel):
+    def __init__(self,x_,y_,vol_,step,opt_=None,arg=None):
         '''
         :param step: step size of time evolution
         '''
-        super().__init__(arg,x_,y_,vol_)
+        super().__init__(arg,x_,y_,vol_,opt_,arg)
         self.step=step
     
     
