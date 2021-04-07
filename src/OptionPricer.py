@@ -1,4 +1,3 @@
-from BDTmodel import BDT
 import numpy as np
 
 
@@ -89,7 +88,8 @@ class TreeBasedBondOptionPricer():
 
 '''
 def demo():
-
+    from BDTmodel import BDT
+    
     # bdt setup
     ttm=np.arange(1,21)*0.25
 
