@@ -2,15 +2,16 @@ import numpy as np
 from scipy.optimize import minimize
 from . import IRModel
 
+
 class BDT(IRModel.IRModel):
-    def __init__(self,x_,y_,vol_,step,opt_=None,arg=None):
+  
+    def __init__(self,x,y,vol,step,opt=None):
         '''
         :param step: step size of time evolution
         '''
-        super().__init__(arg,x_,y_,vol_,opt_,arg)
+        super().__init__(x,y,vol,opt)
         self.step=step
-    
-    
+  
     def calibrate(self):
 
         if len(self.x) != len(self.y) or len(self.x) != len(self.vol)+1:
