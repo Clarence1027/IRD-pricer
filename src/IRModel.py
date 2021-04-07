@@ -1,14 +1,21 @@
 from . import Curves
+from OptionPricer import TreeBasedBondOptionPricer
 import pandas as pd
 import numpy as np
 
 
 class BondOptionPricer:
 
-    def __init__(self, data_, model_type_='V', intp_='CS', opt_=[0.567, 6, 8], step_=1 / 12,window_len_=96):
+    def __init__(self, data_, model_type_='V', intp_='CS', opt_=[0.567, 6, 8], optCall=True, step_=1 / 12,window_len_=96):
         '''
         paras:
                 @opt_: option data, opt[0]: strike; opt[1]: opt maturity; opt[2]: bond maturity
+                @bond_: bond data, bond_[0]: bondCpn with 1 as unit; bond_[1]: bond TTM;
+                                   bond_[2]:Time to first bond payment that is on or after option maturity,
+                                            if there's a bond pmt on option maturity, it's equal to option TTM
+                                            if zero bond or no cpn pmt after option maturity, it's equal to bond TTM
+                                   bond_[3]: bond FaceValue
+                @optCall: is call option or not
                 @data_: spot curve data frame
                 @model_: name of interest model, one of ['BDT','V','HW1']
                 @step_: time interval for tree models or MC
@@ -16,6 +23,8 @@ class BondOptionPricer:
         '''
 
         self.opt = opt_
+        self.bond=bond_
+        self.optCall=optCall
         self.spot_df = cls.spotBootstrapping(data_)
         self.step = step_
         self.window_len = window_len_
@@ -68,16 +77,27 @@ class BondOptionPricer:
             tenor = np.array(vol['tenor'])
             vol_curve = np.array(vol['vol'])[1:]
             rates = self.spot_df.iloc[-1,:].values
-            model = BDT(tenor, rates, vol_curve,opt = self.opt)
+            model = BDT(tenor, rates, vol_curve, step=self.step, opt = self.opt)
             model.calibrate()
+            model.generateStatePrice()
             self.model = model
             # create, calibrate and save IR model
-            pass
+            #pass
+        else:
+            raise Exception('currently not support %s' % self.model_type)
+
+    def getOptionPrice(self,showAllStates=False):
+        if self.model_type= = 'BDT':
+            pricer=TreeBasedBondOptionPricer(self.opt[0],self.opt[1],
+                                             self.bond[0], self.bond[1],self.bond[2],self.bond[3],
+                                             self.optCall, self.model)
+            pricer.price(showAllStates=showAllStates)
+           
         else:
             pass
-
-    def getOptionPrice(self):
-        pass
+            
+            
+            
 
 
 class IRModel:
