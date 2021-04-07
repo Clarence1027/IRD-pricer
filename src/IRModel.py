@@ -6,7 +6,7 @@ import numpy as np
 
 class BondOptionPricer:
 
-    def __init__(self, data_, model_type_='V', intp_='CS', opt_=[0.567, 6, 8], optCall=True, step_=1 / 12,window_len_=96):
+    def __init__(self, data_, model_type_='V', intp_='CS', opt_=[0.567, 6, 8], bond_ = [0, 8, 8, 1], optCall=True, step_=1 / 12,window_len_=96):
         '''
         paras:
                 @opt_: option data, opt[0]: strike; opt[1]: opt maturity; opt[2]: bond maturity
