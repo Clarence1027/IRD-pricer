@@ -56,8 +56,8 @@ class SpotRateCurve (Curve):
     def __init__(self, x, y):
         super().__init__(x, y)
 
-    def __call__(self, date):
-        f = interp1d(self.x, self.y, kind='cubic', fill_value='extrapolate')
+    def __call__(self, date,method='linear'):
+        f = interp1d(self.x, self.y, kind=method, fill_value='extrapolate')
         return f(date)
 
     def generateForwardCurve(self):

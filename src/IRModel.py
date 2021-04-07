@@ -8,7 +8,7 @@ from numpy import random
 
 class BondOptionPricer:
 
-    def __init__(self, data, model_type='V', intp='CS', opt=[0.57, 6, 8], step=1 / 12, rounds=10000, window_len=96):
+    def __init__(self, data, model_type='V', intp='cubic', opt=[0.57, 6, 8], step=1 / 12, rounds=10000, window_len=96):
         '''
         paras:
                 @opt: option data, opt[0]: strike; opt[1]: opt maturity; opt[2]: bond maturity
@@ -21,6 +21,7 @@ class BondOptionPricer:
         self.opt = opt
         self.spot_df = BondOptionPricer.spotBootstrapping(data)
         self.step = step
+        self.intp = intp
         self.window_len = window_len
         self.model_type = model_type
         self.rounds = rounds
@@ -38,7 +39,7 @@ class BondOptionPricer:
                 res = list(spot_curve.y)
                 (res).insert(0, x[0])
             except Exception as e:
-                print(x[0], e)
+                # print(x[0], e)
                 fail_dates.append(x[0])
                 return None
             return res
@@ -54,7 +55,7 @@ class BondOptionPricer:
         window_len = self.window_len
         tenor = [
             i * self.step for i in range(int(np.ceil(self.opt[2] / self.step)))]
-        f = lambda x: Curves.SpotRateCurve(self.spot_df.columns, x)(tenor)
+        f = lambda x: Curves.SpotRateCurve(self.spot_df.columns, x)(tenor,method=self.intp)
         df = self.spot_df.apply(f, axis=1, result_type='expand')
         df.columns = tenor
         self.spot_df = df
@@ -66,7 +67,8 @@ class BondOptionPricer:
         if self.model_type == 'V':
             # prepare inputs
             tenor = np.array(self.spot_df.columns)
-            rates = self.spot_df.iloc[-1, :].values/100
+            rates = self.spot_df.iloc[-1, :].values / 100
+            rates = Curves.SpotRateCurve(tenor,rates)(tenor,method=self.intp)
             model = Vasicek(tenor, rates, vol=None, opt=self.opt)
             self.model = model
 
@@ -76,7 +78,7 @@ class BondOptionPricer:
             vol = self.volStructure()
             tenor = np.array(vol['tenor'])
             vol_curve = np.array(vol['vol'])[1:]
-            rates = self.spot_df.iloc[-1, :].values/100
+            rates = self.spot_df.iloc[-1, :].values / 100
             model = BDT(tenor, rates, vol_curve, opt=self.opt)
             model.calibrate()
             self.model = model
@@ -88,7 +90,7 @@ class BondOptionPricer:
     def getOptionPrice(self):
         m = self.model_type
         self.calibrateIRModel()
-        print(self.model.arg)
+        print(f"Vasicek model parameters are {self.model.arg}")
         if m == 'V':
             print(f"Analytic solution for bond call {self.opt} is {self.model('analytic')}")
             print(f"MC simulation solution for bond call {self.opt} with parameters {1/self.step,self.rounds} is {self.model('MC')}")

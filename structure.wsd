@@ -27,40 +27,38 @@ ForwardCurve -up--|> Curve
 
 
 class IRModels{
-	-spotRates : pd.DataFrame
-	+DF(tenor)
+	-arg
+	-x: maturities
+	-y: yields
+	-vol: vol term structure
+	-opt: option data [K, t, T]
 }
 
 class Vasicek{
 	-args
-	+__call__(opt,method)
+	+__call__(opt,method,arg)
+	+P(arg,tao)
 	+clalibarte()
-	+nanalytic()
-	+MC()
+	+optionPirce()
+	+MC(step,rounds)
 }
 
 class BDT{
-	-args
 	+__call__(opt,method)
 	+clalibarte()
-	+tree()
+	+def SSE(args)
 }
 
-class HullWhite{
-	-args
-	+__call__(opt,method)
-	+clalibarte()
-	+tree()
-}
-
-IRModels <|-- HullWhite
 IRModels <|-- Vasicek
 IRModels <|-- BDT
 
 class BondOptionPricer{
 	-opt
-	-spot
+	-spot_df
 	-step
+	-window_len
+	-model_type
+	-rounds
 	-model
 	+spotBootstrapping()
 	+volStructure()
