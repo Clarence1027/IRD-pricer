@@ -1,4 +1,5 @@
 from . import Curves
+from OptionPricer import TreeBasedBondOptionPricer
 import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
@@ -8,17 +9,26 @@ from numpy import random
 
 class BondOptionPricer:
 
-    def __init__(self, data, model_type='V', intp='cubic', opt=[0.57, 6, 8], step=1 / 12, rounds=10000, window_len=96):
+    def __init__(self, data, model_type='V', intp='cubic', opt=[0.57, 6, 8],bond = [0, 8, 8, 1], optCall=True, step=1 / 12, rounds=10000, window_len=96):
         '''
         paras:
                 @opt: option data, opt[0]: strike; opt[1]: opt maturity; opt[2]: bond maturity
                 @data: spot curve data frame
+                @bond: bond data, bond_[0]: bondCpn with 1 as unit; bond_[1]: bond TTM;
+                                   bond_[2]:Time to first bond payment that is on or after option maturity,
+                                            if there's a bond pmt on option maturity, it's equal to option TTM
+                                            if zero bond or no cpn pmt after option maturity, it's equal to bond TTM
+                                   bond_[3]: bond FaceValue
+                @optCall: is call option or not
                 @model_: name of interest model, one of ['BDT','V','HW1']
                 @step: time interval for tree models or MC
                 @intp: interpolation method: one of ['CS','NS'] Cubic Spline and Nelson Siegel
         '''
 
+
         self.opt = opt
+        self.bond=bond
+        self.optCall=optCall
         self.spot_df = BondOptionPricer.spotBootstrapping(data)
         self.step = step
         self.intp = intp
@@ -28,7 +38,9 @@ class BondOptionPricer:
 
     @classmethod
     def spotBootstrapping(cls, df):
-        tenor = [Curves.TsyYldCurve.getMaturityInYears(
+        tenor = [Curves.TsyYldCurve.getMaturityInYears(>>>>>>> master
+39
+
             x) for x in df.columns[1:]]
         fail_dates = []
 
@@ -79,14 +91,25 @@ class BondOptionPricer:
             tenor = np.array(vol['tenor'])
             vol_curve = np.array(vol['vol'])[1:]
             rates = self.spot_df.iloc[-1, :].values / 100
-            model = BDT(tenor, rates, vol_curve, opt=self.opt)
+            model = BDT(tenor, rates, vol_curve, step=self.step, opt = self.opt)
             model.calibrate()
+            model.generateStatePrice()
             self.model = model
             # create, calibrate and save IR model
-            pass
+            #pass
+        else:
+            raise Exception('currently not support %s' % self.model_type)
+
+    def getOptionPrice(self,showAllStates=False):
+        if self.model_type= = 'BDT':
+            pricer=TreeBasedBondOptionPricer(self.opt[0],self.opt[1],
+                                             self.bond[0], self.bond[1],self.bond[2],self.bond[3],
+                                             self.optCall, self.model)
+            pricer.price(showAllStates=showAllStates)
+           
         else:
             pass
-
+          
     def getOptionPrice(self):
         m = self.model_type
         self.calibrateIRModel()
