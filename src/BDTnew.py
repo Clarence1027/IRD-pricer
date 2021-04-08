@@ -4,11 +4,11 @@ from . import IRModel
 
 
 class BDT(IRModel.IRModel):
-    def __init__(self, x_, y_, vol_, step, arg=None):
+    def __init__(self, x_, y_, vol_, step, opt=None):
         '''
         :param step: step size of time evolution
         '''
-        super().__init__(arg, x_, y_, vol_)
+        super().__init__(x_, y_, vol_, opt)
         self.step = step
 
     def calibrate(self):
@@ -28,7 +28,7 @@ class BDT(IRModel.IRModel):
                            method='SLSQP',bounds=bounds)
 
             if res.success:
-                print('So damn good ')
+                #print('So damn good ')
                 out=res.x.reshape(-1,2)
                 shortRate=np.triu(np.ones((len(zeroPrice),len(zeroPrice))))
                 shortRate[0, 0] = -np.log(zeroPrice[0]) / self.step
@@ -38,7 +38,8 @@ class BDT(IRModel.IRModel):
                 self.shortRate=shortRate
 
             else:
-                print('Fuckkkkk')
+                #print('Fuckkkkk')
+                raise Exception('optimization failed')
 
 
     @staticmethod
