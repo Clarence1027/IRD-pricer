@@ -63,14 +63,15 @@ class BondOptionPricer:
         # interpolate spot curve with new tenor
         window_len = self.window_len
         tenor = [
-            i * self.step for i in range(int(np.ceil(self.opt[2] / self.step)))]
+            (i + 1) * self.step for i in range(int(np.ceil(self.opt[2] / self.step)))]
         f = lambda x: Curves.SpotRateCurve(
             self.spot_df.columns, x)(tenor, method=self.intp)
         df = self.spot_df.apply(f, axis=1, result_type='expand')
         df.columns = tenor
+        # df.to_csv('df.csv')
         self.spot_df = df
         return pd.DataFrame(zip(df.columns, np.log(df[-window_len:] /
-                                                   df[-window_len:].shift(1)).std(axis=0)), columns=['tenor', 'vol'])
+                                                   df[-window_len:].shift(1)).std(axis=0) / np.sqrt(5 / 252)), columns=['tenor', 'vol'])
 
     def calibrateIRModel(self):
         # propare inputs
@@ -86,12 +87,13 @@ class BondOptionPricer:
 
             # prepare inputs
             vol = self.volStructure()
+            vol.to_csv("vol.csv")
             tenor = np.array(vol['tenor'])
             vol_curve = np.array(vol['vol'])[1:]
             rates = self.spot_df.iloc[-1, :].values / 100
-            pd.DataFrame([tenor,vol_curve,rates]).to_csv('bdt_inputs.csv')
+            pd.DataFrame([tenor, vol_curve, rates]).to_csv('bdt_inputs.csv')
             model = BDT(tenor, rates, vol_curve,
-                                 step=self.step, opt=self.opt)
+                        step=self.step, opt=self.opt)
             # print(rates)
             # print(tenor)
             # print(vol_curve)
@@ -113,7 +115,8 @@ class BondOptionPricer:
         elif m == 'BDT':
             pricer = TreeBasedBondOptionPricer(self.opt[0], self.opt[1], self.bond[0], self.bond[
                                                1], self.bond[2], self.bond[3], self.optCall, self.model)
-            pricer.price(showAllStates=showAllStates)
+            print(pricer.price(showAllStates=True))
+            return pricer.price()
         else:
             pass
 
@@ -211,11 +214,11 @@ class Vasicek(IRModel):
 
 class BDT(IRModel):
 
-    def __init__(self, x, y, vol, step, opt=None):
+    def __init__(self, x_, y_, vol_, step, opt=None):
         '''
         :param step: step size of time evolution
         '''
-        super().__init__(x, y, vol, opt)
+        super().__init__(x_, y_, vol_, opt)
         self.step = step
 
     def calibrate(self):
@@ -224,30 +227,41 @@ class BDT(IRModel):
             raise Exception('length does not match')
         else:
             zeroPrice = np.exp(-self.y * self.x)
-            
-            self.shortRate = np.triu(np.zeros((len(self.x), len(self.x))))
-            # an auxiliary tree
-            priceTree = np.triu(np.ones((len(self.x) + 1, len(self.x) + 1)))
-            for i in range(len(self.shortRate)):
-                # to calibrate short rates at step i
-                if i == 0:
-                    self.shortRate[0, 0] = -np.log(zeroPrice[0]) / self.step
 
-                else:
-                    res = minimize(BDT.SSE, [0.01, 0.1], args=(self.shortRate, priceTree, self.step, i, zeroPrice[i], self.vol[i - 1]),
-                                   method='SLSQP')
-                    if res.success:
-                        pass
-                    else:
-                        raise Exception('optimization failed for step %d' % i)
+            initGuess = np.vstack((self.y[1:], self.vol)).T
+            bounds = np.array([((0, 0.1), (0, 4))
+                               for i in range(len(self.vol))])
+            bounds = [list(x) for x in bounds.reshape(len(self.vol) * 2, 2)]
+
+            res = minimize(BDT.totalSSE,
+                           initGuess,
+                           args=(self.step, zeroPrice, self.vol),
+                           method='SLSQP', bounds=bounds)
+
+            if res.success:
+                #print('So damn good ')
+                # out = res.x.reshape(-1, 2)
+                out = res.x.reshape(len(self.vol), 2)
+                shortRate = np.triu(np.ones((len(zeroPrice), len(zeroPrice))))
+                shortRate[0, 0] = -np.log(zeroPrice[0]) / self.step
+                for i in range(1, len(shortRate)):
+                    shortRate[0:i + 1, i] = [out[i - 1, 0] * (
+                        np.exp(2 * out[i - 1, 1] * np.sqrt(self.step)))**k for k in range(i + 1)]
+
+                self.shortRate = shortRate
+
+            else:
+                # print('Fuckkkkk')
+                print(res)
+                print(initGuess)
+                raise Exception('optimization failed')
 
     @staticmethod
-    def SSE(x, shortRateTree, priceTree, deltaTime, timeIndex, targetPrice, targetVol):
-        # x=[r_i0,sigma] where i=timeIndex, r_i0 = (0,i) element in
-        # shortRateTree
-        r, sigma = x[0], x[1]
-        shortRateTree[0:timeIndex + 1, timeIndex] = [r *
-                                                     np.exp(2 * sigma * np.sqrt(deltaTime))**k for k in range(timeIndex + 1)]
+    def SSE(shortRateTree, deltaTime, timeIndex, targetPrice, targetVol):
+        # calculate error for timeIndex using the structed shortRateTree
+
+        priceTree = np.triu(np.ones((timeIndex + 2, timeIndex + 2)))
+
         for t in range(timeIndex, -1, -1):
             for j in range(0, t + 1):
                 priceTree[j, t] = 0.5 * (priceTree[j, t + 1] + priceTree[
@@ -256,7 +270,32 @@ class BDT(IRModel):
         sigma_model = 0.5 * \
             np.log(np.log(priceTree[1, 1]) / np.log(priceTree[0, 1]))
 
-        return 100000 * ((priceTree[0, 0] - targetPrice)**2 + (sigma_model - targetVol)**2)
+        return 10 * ((priceTree[0, 0] - targetPrice) ** 2 + (sigma_model - targetVol) ** 2)
+
+    @staticmethod
+    def totalSSE(xx, deltaTime, targetPrices, targetVols):
+        # xx= [[r_10, sigma1],
+        #      [r_20, sigma2],
+        #      [r_30, sigma3]
+        #       .............
+        #                    ]
+        xx = xx.reshape(-1, 2)
+
+        totalError = 0
+
+        shortRateTree = np.triu(
+            np.zeros((len(targetPrices), len(targetPrices))))
+        shortRateTree[0, 0] = -np.log(targetPrices[0]) / deltaTime
+
+        for i in range(1, len(shortRateTree)):
+            shortRateTree[0:i + 1, i] = [xx[i - 1, 0] *
+                                         (np.exp(2 * xx[i - 1, 1] * np.sqrt(deltaTime)))**k for k in range(i + 1)]
+
+        for i in range(1, len(shortRateTree)):
+            totalError += BDT.SSE(shortRateTree, deltaTime,
+                                  i, targetPrices[i], targetVols[i - 1])
+
+        return totalError
 
     def generateStatePrice(self):
         self.statePrice = [None]
@@ -271,49 +310,74 @@ class BDT(IRModel):
 
 
 def BDT_testDemo():
-    ttm = np.arange(1, 21) * 0.25
 
-    px = np.array([0.9888, 0.9775, 0.9664, 0.9555,
-                   0.9447, 0.9341, 0.9235, 0.9131,
-                   0.9028, 0.8926, 0.8826, 0.8726,
-                   0.8628, 0.8530, 0.8434, 0.8339,
-                   0.8245, 0.8152, 0.8060, 0.7969])
+    vol = np.array([0.396985268, 0.300462881,
+                    0.240958353, 0.205686601, 0.182102897, 0.163445286,
+                    0.148452631, 0.137814264, 0.131999614, 0.12995787,
+                    0.129306795, 0.128412379, 0.126670036, 0.124053075,
+                    0.120846305, 0.117463875, 0.114323428, 0.111757181,
+                    0.10995445, 0.108939193, 0.108585538, 0.108665657,
+                    0.108925065, 0.109193383, 0.10940044, 0.109538009,
+                    0.10963047, 0.109713755, 0.109821133, 0.109974592,
+                    0.110180777, 0.110430573, 0.11070143, 0.110961576,
+                    0.111177119, 0.11132523, 0.111394387, 0.111380694,
+                    0.111285541, 0.111113778, 0.110872306, 0.110569007,
+                    0.110211948, 0.10980881, 0.109366493, 0.108890879,
+                    0.108386702, 0.107857528, 0.107305803, 0.106732966,
+                    0.106139607, 0.105525649, 0.104890556, 0.104233547,
+                    0.103553806, 0.102850688, 0.102123911, 0.101373729,
+                    0.100602227])
 
-    rates = -np.log(px) / ttm
+    rates = np.array([0.0001, 0.000127636, 0.000200001, 0.00029855,
+                      0.000404738, 0.00050002, 0.000569998, 0.000616866,
+                      0.000646964, 0.000666633, 0.000682215, 0.000700049,
+                      0.000725379, 0.000759056, 0.000800834, 0.000850465,
+                      0.000907703, 0.000972302, 0.001044015, 0.001122595,
+                      0.001207795, 0.001299369, 0.001397071, 0.001500653,
+                      0.001609923, 0.001724907, 0.001845683, 0.00197233,
+                      0.002104929, 0.002243557, 0.002388295, 0.002539221,
+                      0.002696414, 0.002859955, 0.003029921, 0.003206393,
+                      0.003389376, 0.00357858, 0.003773641, 0.003974196,
+                      0.004179881, 0.004390333, 0.004605189, 0.004824083,
+                      0.005046654, 0.005272538, 0.00550137, 0.005732788,
+                      0.005966428, 0.006201926, 0.006438919, 0.006677043,
+                      0.006915934, 0.00715523, 0.007394566, 0.007633579,
+                      0.007871906, 0.008109182, 0.008345045, 0.00857913])
 
-    vol = np.array([44.48, 39.41, 37.52, 36.59,
-                    36.02, 35.58, 35.15, 34.70,
-                    34.19, 33.62, 33.01, 32.36,
-                    31.68, 31.00, 30.31, 29.65,
-                    29.01, 28.41, 27.87]) / 100
+    ttm = np.arange(1, 61) * (1 / 12)
 
-    bdt = BDT(ttm, rates, vol, step=0.25)
+    '''
+    ttm=np.arange(1,5)*0.25
+    px=np.array([0.9888,0.9775,0.9664,0.9555])
+    rates=-np.log(px)/ttm
+    vol=np.array([44.48,39.41,37.52])/100
+    '''
+
+    bdt = BDT(ttm, rates, vol, step=1 / 12)
     bdt.calibrate()
+    # print(bdt.shortRate)
+    # print('------------')
     bdt.generateStatePrice()
-
-    print(bdt.shortRate[:4, :4])
-    print('------------')
-
-    for i in range(1, 5):
-        print(bdt.statePrice[i])
-        print('------------')
+    # for tree in bdt.statePrice:
+    print(tree)
+    print('----------')
 
 
 if __name__ == '__main__':
 
-    # BDT_testDemo()
+    BDT_testDemo()
 
-    # test runing example
-    # using command line: python -m src.IRModel under project ./ dir
-    data = pd.read_csv('./data/CMT/CMT/CMT.csv')
-    model_type = 'BDT'
-    intp = 'cubic'
-    opt = [0.57, 6, 8]
-    bond = [0, 8, 8, 1]
-    optCall = True
-    step = 1 / 12
-    rounds = 10000
-    window_len = 96
-    pricer = BondOptionPricer(data, model_type, intp,
-                              opt, bond, optCall, step, rounds, window_len)
-    pricer.getOptionPrice()
+    # # test runing example
+    # # using command line: python -m src.IRModel under project ./ dir
+    # data = pd.read_csv('./data/CMT/CMT/CMT.csv')
+    # model_type = 'BDT'
+    # intp = 'cubic'
+    # opt = [0.57, 6, 8]
+    # bond = [0, 8, 8, 1]
+    # optCall = True
+    # step = 1 / 12
+    # rounds = 10000
+    # window_len = 96
+    # pricer = BondOptionPricer(data, model_type, intp,
+    #                           opt, bond, optCall, step, rounds, window_len)
+    # pricer.getOptionPrice()
