@@ -1,16 +1,9 @@
 import numpy as np
 from scipy.optimize import minimize
+from . import IRModel
 
 
-class ShortRate():
-    def __init__(self, arg, x_, y_, vol_):
-        self.arg = arg
-        self.x = x_  # ttm, np.array
-        self.y = y_  # zero rates, np.array
-        self.vol = vol_  # vol, np.array
-
-
-class BDT(ShortRate):
+class BDT(IRModel.IRModel):
     def __init__(self, x_, y_, vol_, step, arg=None):
         '''
         :param step: step size of time evolution
@@ -24,8 +17,7 @@ class BDT(ShortRate):
             raise Exception('length does not match')
         else:
             zeroPrice = np.exp(-self.y * self.x)
-            #self.shortRate = np.triu(np.zeros((len(self.x), len(self.x))))
-            #priceTree = np.triu(np.ones((len(self.x) + 1, len(self.x) + 1)))  # an auxiliary tree
+            
             initGuess=np.vstack((self.y[1:],self.vol)).T
             bounds = np.array( [ ( (0, 0.1), (0, 4) ) for i in range(len(self.vol)) ] )
             bounds = [list(x) for x in bounds.reshape(len(self.vol) * 2, 2)]
@@ -153,3 +145,6 @@ def demo():
     #    print(tree)
     #    print('----------')
 
+    
+if __name__=='__main__':
+    demo()
