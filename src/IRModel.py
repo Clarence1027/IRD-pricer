@@ -70,8 +70,8 @@ class BondOptionPricer:
         df.columns = tenor
         # df.to_csv('df.csv')
         self.spot_df = df
-        return pd.DataFrame(zip(df.columns, np.log(df[-window_len:] /
-                                                   df[-window_len:].shift(1)).std(axis=0) / np.sqrt(5 / 252)), columns=['tenor', 'vol'])
+        return pd.DataFrame(zip(df.columns, np.log(df[-window_len-120:-120] /
+                                                   df[-window_len-120:-120].shift(1)).std(axis=0)/np.sqrt(5/252)), columns=['tenor', 'vol'])
 
     def calibrateIRModel(self):
         # propare inputs
@@ -229,7 +229,7 @@ class BDT(IRModel):
             zeroPrice = np.exp(-self.y * self.x)
 
             initGuess = np.vstack((self.y[1:], self.vol)).T
-            bounds = np.array([((0, 0.1), (0, 4))
+            bounds = np.array([((0, 0.1), (0, 1))
                                for i in range(len(self.vol))])
             bounds = [list(x) for x in bounds.reshape(len(self.vol) * 2, 2)]
 
@@ -239,9 +239,7 @@ class BDT(IRModel):
                            method='SLSQP', bounds=bounds)
 
             if res.success:
-                #print('So damn good ')
-                # out = res.x.reshape(-1, 2)
-                out = res.x.reshape(len(self.vol), 2)
+                out = res.x.reshape(-1, 2)
                 shortRate = np.triu(np.ones((len(zeroPrice), len(zeroPrice))))
                 shortRate[0, 0] = -np.log(zeroPrice[0]) / self.step
                 for i in range(1, len(shortRate)):
@@ -251,7 +249,6 @@ class BDT(IRModel):
                 self.shortRate = shortRate
 
             else:
-                # print('Fuckkkkk')
                 print(res)
                 print(initGuess)
                 raise Exception('optimization failed')
@@ -270,7 +267,7 @@ class BDT(IRModel):
         sigma_model = 0.5 * \
             np.log(np.log(priceTree[1, 1]) / np.log(priceTree[0, 1]))
 
-        return 10 * ((priceTree[0, 0] - targetPrice) ** 2 + (sigma_model - targetVol) ** 2)
+        return 1000 * ((priceTree[0, 0] - targetPrice) ** 2 + (sigma_model - targetVol) ** 2)
 
     @staticmethod
     def totalSSE(xx, deltaTime, targetPrices, targetVols):
